@@ -1,6 +1,6 @@
 // Orchestrace: routing, udalosti, odmeny, level-upy, efekty, drag-to-reorder.
 import * as store from './store.js';
-import { getState, dayKey } from './store.js';
+import { getState, dayKey, shouldRemindExport, markExportReminder } from './store.js';
 import { icon, COLORS } from './icons.js';
 import {
   viewToday, viewHabits, viewTrain, viewStats, viewProfile,
@@ -447,6 +447,13 @@ function init() {
     applyDailyPenalties();
   }
   paint();
+  // připomínka zálohy každých 7 dní
+  if (shouldRemindExport()) {
+    setTimeout(() => {
+      showToast('Nezapomeň si zazálohovat data (Profil → Export)', { icon: 'briefcase' });
+      markExportReminder();
+    }, 3000);
+  }
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 init();
