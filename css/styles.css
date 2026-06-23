@@ -284,6 +284,35 @@ h1, h2, h3, .brand, .stat-num, .level-num { font-family: 'Sora', sans-serif; }
 .switch i { position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff; transition: transform .2s; }
 .switch.on i { transform: translateX(20px); }
 
+/* Priority left border */
+.habit { border-left: 3px solid transparent; }
+.habit[data-priority="1"] { border-left-color: rgba(156,163,175,.4); }
+.habit[data-priority="2"] { border-left-color: rgba(124,92,255,.65); }
+.habit[data-priority="3"] { border-left-color: rgba(251,191,36,.9); box-shadow: inset 4px 0 12px rgba(251,191,36,.06); }
+
+/* Priority badge */
+.pri-badge { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 99px; letter-spacing: .4px; }
+.pri-1 { background: rgba(156,163,175,.15); color: #9ca3af; }
+.pri-2 { background: rgba(124,92,255,.18); color: #a78bfa; }
+.pri-3 { background: rgba(251,191,36,.18); color: #fbbf24; }
+
+/* Miss streak warning */
+.miss-warn { font-size: 11px; color: var(--pink); font-weight: 600; display: inline-flex; align-items: center; gap: 3px; }
+.miss-warn svg { width: 12px; height: 12px; }
+
+/* Drag */
+.habit.dragging { opacity: .28; transform: scale(.97) !important; transition: opacity .15s, transform .15s; pointer-events: none; }
+.habit-ghost {
+  position: fixed; pointer-events: none; z-index: 9999;
+  box-shadow: 0 28px 70px rgba(0,0,0,.65);
+  border-radius: var(--radius);
+  transform: scale(1.03);
+  will-change: top;
+}
+.drag-hint { font-size: 11px; color: var(--text-faint); text-align: center; padding: 6px 0 2px; letter-spacing: .3px; }
+.drag-insert { height: 4px; border-radius: 2px; background: var(--violet); margin: 2px 0; opacity: 0; transition: opacity .15s; }
+.drag-insert.show { opacity: 1; }
+
 /* velikosti inline ikon v textu */
 .rank svg { width: 20px; height: 20px; vertical-align: -4px; }
 .mini-streak svg { width: 13px; height: 13px; }

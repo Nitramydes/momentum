@@ -1,27 +1,27 @@
-// Orchestrace: routing, udalosti, odmeny, level-upy, efekty.
+// Orchestrace: routing, udalosti, odmeny, level-upy, efekty, drag-to-reorder.
 import * as store from './store.js';
 import { getState, dayKey } from './store.js';
 import { icon, COLORS } from './icons.js';
 import {
   viewToday, viewHabits, viewTrain, viewStats, viewProfile,
-  sheetHabit, sheetExercise, sheetExerciseDetail,
+  sheetHabit, sheetExercise, sheetExerciseDetail, renderTabbar,
 } from './ui.js';
 import {
   amountOn, streakInfo, levelFromXp, getQuest, computeStats,
-  BADGES, HABIT_XP, REP_XP, BADGE_XP, exTodayTotal,
+  BADGES, REP_XP, BADGE_XP, exTodayTotal, habitBaseXp,
+  missStreakYesterday, PRIORITY_PENALTY,
 } from './game.js';
 
-const $view = document.getElementById('view');
+const $view  = document.getElementById('view');
 const $tabbar = document.getElementById('tabbar');
 const $modal = document.getElementById('modal');
 const $toast = document.getElementById('toast');
-const $fx = document.getElementById('fx');
+const $fx    = document.getElementById('fx');
 const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 let currentTab = 'today';
 const VIEWS = { today: viewToday, habits: viewHabits, train: viewTrain, stats: viewStats, profile: viewProfile };
 
-import { renderTabbar } from './ui.js';
 function paint() {
   $view.innerHTML = VIEWS[currentTab](getState());
   $tabbar.innerHTML = renderTabbar(currentTab);
@@ -61,8 +61,8 @@ function confetti() {
     const dur = 1100 + Math.random() * 1000;
     el.animate([
       { transform: 'translate(0,0) rotate(0)', opacity: 1 },
-      { transform: `translate(${x}px, ${H + 80}px) rotate(${rot}deg)`, opacity: 1, offset: 0.85 },
-      { transform: `translate(${x}px, ${H + 80}px) rotate(${rot}deg)`, opacity: 0 },
+      { transform: `translate(${x}px,${H + 80}px) rotate(${rot}deg)`, opacity: 1, offset: 0.85 },
+      { transform: `translate(${x}px,${H + 80}px) rotate(${rot}deg)`, opacity: 0 },
     ], { duration: dur, easing: 'cubic-bezier(.2,.6,.4,1)' }).onfinish = () => el.remove();
   }
 }
@@ -104,6 +104,36 @@ function checkQuest() {
   }
 }
 
+// ---------- penalizace za vynechane navyky ----------
+function applyDailyPenalties() {
+  const st = getState();
+  const today = dayKey();
+  const penaltyLog = st.game.penaltyLog || {};
+  const penalized = [];
+  const newLog = { ...penaltyLog };
+
+  for (const h of st.habits) {
+    if (h.type !== 'daily') continue;
+    const ms = missStreakYesterday(st, h);
+    if (ms >= 3 && penaltyLog[h.id] !== today) {
+      const penalty = PRIORITY_PENALTY[h.priority || 2];
+      penalized.push({ name: h.name, penalty, ms });
+      newLog[h.id] = today;
+    }
+  }
+
+  if (penalized.length) {
+    const total = penalized.reduce((s, p) => s + p.penalty, 0);
+    store.addXp(-total);
+    store.setGame({ penaltyLog: newLog });
+    setTimeout(() => {
+      penalized.forEach((p, i) => {
+        setTimeout(() => showToast(`−${p.penalty} XP: ${p.name} (${p.ms}d bez splnění)`, { icon: 'warning' }), i * 600);
+      });
+    }, 400);
+  }
+}
+
 // ---------- logovani ----------
 function logHabit(h, delta) {
   const today = dayKey();
@@ -115,13 +145,13 @@ function logHabit(h, delta) {
 
   if (before < target && after >= target) {
     const info = streakInfo(getState(), h);
-    const xp = Math.round(HABIT_XP * info.multiplier);
+    const xp = Math.round(habitBaseXp(h) * info.multiplier);
     rewardXp(xp);
     if (info.multiplier > 1) showToast(`Bonus ×${info.multiplier} za streak 🔥`, { icon: 'flame' });
     confetti(); haptic([0, 40, 30, 40]);
     checkBadges(); checkQuest();
   } else if (before >= target && after < target) {
-    store.addXp(-HABIT_XP);
+    store.addXp(-habitBaseXp(h));
     haptic(10);
   } else {
     haptic(12);
@@ -157,7 +187,7 @@ function openModal(html) {
 }
 function closeModal() { $modal.hidden = true; $modal.innerHTML = ''; }
 
-// ---------- ctení formulare ----------
+// ---------- cteni formulare ----------
 const v = (id) => (document.getElementById(id)?.value || '').trim();
 const selOn = (sel) => $modal.querySelector(sel + ' .on');
 
@@ -165,6 +195,7 @@ function readHabitForm() {
   return {
     name: v('f-name'),
     type: selOn('#f-type')?.dataset.v || 'daily',
+    priority: +(selOn('#f-priority')?.dataset.v || 2),
     target: Math.max(1, +v('f-target') || 1),
     unit: v('f-unit'),
     step: Math.max(1, +v('f-step') || 1),
@@ -208,9 +239,114 @@ function doImport() {
   inp.click();
 }
 
+// ---------- drag-to-reorder ----------
+const drag = { active: false, id: null, ghost: null, startY: 0, originTop: 0, cardEls: [], targetIndex: -1 };
+let pressTimer = null;
+let pressStartY = 0;
+let pendingCard = null;
+let pendingTouchY = 0;
+
+$view.addEventListener('touchstart', (e) => {
+  if (currentTab !== 'today' && currentTab !== 'habits') return;
+  const card = e.target.closest('.habit[data-id]');
+  if (!card || drag.active) return;
+  pendingCard = card;
+  pressStartY = e.touches[0].clientY;
+  pendingTouchY = pressStartY;
+  pressTimer = setTimeout(() => startDrag(pendingCard, pendingTouchY), 450);
+}, { passive: true });
+
+$view.addEventListener('touchmove', (e) => {
+  if (drag.active) {
+    e.preventDefault();
+    moveDrag(e.touches[0].clientY);
+  } else if (Math.abs(e.touches[0].clientY - pressStartY) > 10) {
+    clearTimeout(pressTimer);
+    pressTimer = null;
+  }
+}, { passive: false });
+
+$view.addEventListener('touchend', () => {
+  clearTimeout(pressTimer);
+  pressTimer = null;
+  if (drag.active) endDrag();
+});
+
+$view.addEventListener('touchcancel', () => {
+  clearTimeout(pressTimer);
+  pressTimer = null;
+  cancelDrag();
+});
+
+function startDrag(card, startY) {
+  if (!card || !document.contains(card)) return;
+  const rect = card.getBoundingClientRect();
+
+  // ghost = visuální klon karty
+  const ghost = card.cloneNode(true);
+  ghost.className += ' habit-ghost';
+  ghost.style.left   = rect.left + 'px';
+  ghost.style.top    = rect.top  + 'px';
+  ghost.style.width  = rect.width + 'px';
+  ghost.style.margin = '0';
+  document.body.appendChild(ghost);
+
+  drag.active      = true;
+  drag.id          = card.dataset.id;
+  drag.ghost       = ghost;
+  drag.startY      = startY;
+  drag.originTop   = rect.top;
+  drag.targetIndex = -1;
+  drag.cardEls     = Array.from($view.querySelectorAll('.habit[data-id]')).map((el) => ({
+    el, id: el.dataset.id, rect: el.getBoundingClientRect(),
+  }));
+
+  card.classList.add('dragging');
+  haptic([0, 40, 20]);
+}
+
+function moveDrag(touchY) {
+  if (!drag.active || !drag.ghost) return;
+  const dy = touchY - drag.startY;
+  drag.ghost.style.top = (drag.originTop + dy) + 'px';
+
+  const ghostCenterY = drag.originTop + dy + drag.ghost.offsetHeight / 2;
+  const others = drag.cardEls.filter((c) => c.id !== drag.id);
+  let idx = 0;
+  for (let i = 0; i < others.length; i++) {
+    if (ghostCenterY > others[i].rect.top + others[i].rect.height / 2) idx = i + 1;
+  }
+  drag.targetIndex = idx;
+}
+
+function endDrag() {
+  if (!drag.active) return;
+  drag.ghost?.remove();
+  const original = $view.querySelector(`.habit[data-id="${drag.id}"]`);
+  if (original) original.classList.remove('dragging');
+
+  if (drag.id && drag.targetIndex >= 0) {
+    const others = drag.cardEls.filter((c) => c.id !== drag.id).map((c) => c.id);
+    others.splice(drag.targetIndex, 0, drag.id);
+    store.reorderHabits(others);
+  }
+
+  drag.active = false; drag.id = null; drag.ghost = null;
+  drag.cardEls = []; drag.targetIndex = -1;
+}
+
+function cancelDrag() {
+  if (!drag.active) return;
+  drag.ghost?.remove();
+  $view.querySelector(`.habit[data-id="${drag.id}"]`)?.classList.remove('dragging');
+  drag.active = false; drag.id = null; drag.ghost = null;
+  drag.cardEls = []; drag.targetIndex = -1;
+}
+
 // ---------- event delegace ----------
 document.addEventListener('click', (e) => {
-  // vyber v segmentech/ikonach/barvach (uvnitr modalu)
+  if (drag.active) return; // ignoruj kliknuti behem dragu
+
   const seg = e.target.closest('.seg button');
   if (seg) {
     seg.parentElement.querySelectorAll('button').forEach((b) => b.classList.remove('on'));
@@ -238,8 +374,8 @@ document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-act]');
   if (!el) return;
   const act = el.dataset.act;
-  const id = el.dataset.id;
-  const st = getState();
+  const id  = el.dataset.id;
+  const st  = getState();
 
   switch (act) {
     case 'tab':
@@ -250,14 +386,13 @@ document.addEventListener('click', (e) => {
     // navyky
     case 'habit-check': {
       const h = st.habits.find((x) => x.id === id); if (!h) break;
-      const target = h.target || 1;
-      const done = amountOn(st, 'habit', h.id, dayKey()) >= target;
-      logHabit(h, done ? -target : target);
+      const done = amountOn(st, 'habit', h.id, dayKey()) >= (h.target || 1);
+      logHabit(h, done ? -(h.target || 1) : (h.target || 1));
       break;
     }
     case 'habit-add': { const h = st.habits.find((x) => x.id === id); if (h) logHabit(h, h.step || 1); break; }
     case 'habit-sub': { const h = st.habits.find((x) => x.id === id); if (h) logHabit(h, -(h.step || 1)); break; }
-    case 'habit-new': openModal(sheetHabit(null)); break;
+    case 'habit-new':  openModal(sheetHabit(null)); break;
     case 'habit-edit': { const h = st.habits.find((x) => x.id === id); if (h) openModal(sheetHabit(h)); break; }
     case 'habit-save': {
       const data = readHabitForm();
@@ -271,12 +406,12 @@ document.addEventListener('click', (e) => {
     }
 
     // cviky
-    case 'ex-open': { const ex = st.exercises.find((x) => x.id === id); if (ex) openModal(sheetExerciseDetail(st, ex)); break; }
+    case 'ex-open':  { const ex = st.exercises.find((x) => x.id === id); if (ex) openModal(sheetExerciseDetail(st, ex)); break; }
     case 'ex-quick': logExercise(id, +el.dataset.amt); pop(el); break;
-    case 'ex-add': logExercise(id, +el.dataset.amt); pop(el); break;
-    case 'ex-undo': undoExercise(id, +el.dataset.amt); break;
-    case 'ex-new': openModal(sheetExercise(null)); break;
-    case 'ex-edit': { const ex = st.exercises.find((x) => x.id === id); if (ex) openModal(sheetExercise(ex)); break; }
+    case 'ex-add':   logExercise(id, +el.dataset.amt); pop(el); break;
+    case 'ex-undo':  undoExercise(id, +el.dataset.amt); break;
+    case 'ex-new':   openModal(sheetExercise(null)); break;
+    case 'ex-edit':  { const ex = st.exercises.find((x) => x.id === id); if (ex) openModal(sheetExercise(ex)); break; }
     case 'ex-save': {
       const data = readExForm();
       if (!data.name) { showToast('Zadej název', { icon: 'pen' }); break; }
@@ -297,17 +432,21 @@ document.addEventListener('click', (e) => {
     case 'toggle-haptics': store.setSettings({ haptics: !st.settings.haptics }); haptic(20); break;
     case 'export': doExport(); break;
     case 'import': doImport(); break;
-    case 'reset': if (confirm('Opravdu smazat VŠECHNA data? Tohle nelze vrátit.')) { store.resetAll(); showToast('Vše smazáno', { icon: 'trash' }); } break;
+    case 'reset':
+      if (confirm('Opravdu smazat VŠECHNA data? Tohle nelze vrátit.')) { store.resetAll(); showToast('Vše smazáno', { icon: 'trash' }); }
+      break;
   }
 });
 
 // ---------- start ----------
 function init() {
-  // reset denni vyzvy pri novem dni
-  if (getState().game.questDay !== dayKey()) store.setGame({ questDay: dayKey(), questDone: false });
-  paint();
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+  const st = getState();
+  const newDay = st.game.questDay !== dayKey();
+  if (newDay) {
+    store.setGame({ questDay: dayKey(), questDone: false });
+    applyDailyPenalties();
   }
+  paint();
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 init();

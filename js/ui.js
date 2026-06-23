@@ -5,6 +5,7 @@ import { dayKey } from './store.js';
 import {
   amountOn, habitDoneOn, streakInfo, nextMultStep, weekProgress,
   levelProgress, rankFor, computeStats, exTodayTotal, getQuest, BADGES,
+  PRIORITY_LABELS, PRIORITY_COLORS, habitBaseXp, missStreakYesterday,
 } from './game.js';
 
 export function esc(s) {
@@ -84,14 +85,14 @@ function questCard(state) {
 }
 
 // ---------- habit row ----------
-function habitRow(state, h) {
+function habitRow(state, h, { draggable = false } = {}) {
   const today = dayKey();
   const amt = amountOn(state, 'habit', h.id, today);
   const target = h.target || 1;
   const done = amt >= target;
   const info = streakInfo(state, h);
   const pct = Math.min(1, amt / target);
-  const step = h.step || 1;
+  const pri = h.priority || 2;
 
   let sub = '';
   if (h.type === 'weekly') {
@@ -103,6 +104,8 @@ function habitRow(state, h) {
   const streakBadge = info.displayStreak > 0
     ? `<span class="mini-streak">${icon('flame')} ${info.displayStreak}${info.unit}</span>` : '';
   const multBadge = info.multiplier > 1 ? `<span class="mult-badge">×${info.multiplier}</span>` : '';
+  const ms = missStreakYesterday(state, h);
+  const missWarn = ms >= 3 ? `<span class="miss-warn">${icon('warning')} ${ms}d</span>` : '';
 
   let action;
   if (target <= 1) {
@@ -115,11 +118,15 @@ function habitRow(state, h) {
     </div>`;
   }
 
-  return `<div class="card habit">
+  const gripHandle = draggable
+    ? `<div class="drag-grip" style="color:var(--text-faint);flex:none;padding:0 4px 0 0;touch-action:none">${icon('grip')}</div>` : '';
+
+  return `<div class="card habit" data-id="${h.id}" data-priority="${pri}">
+    ${gripHandle}
     <div class="h-ico" style="${tinted(h.color)}">${icon(h.icon)}</div>
     <div class="h-body">
       <div class="h-name">${esc(h.name)} ${multBadge}</div>
-      <div class="h-sub">${sub} ${streakBadge}</div>
+      <div class="h-sub">${sub} ${streakBadge} ${missWarn}</div>
       ${target > 1 ? `<div class="h-prog-bar"><i style="width:${pct * 100}%;background:${h.color}"></i></div>` : ''}
     </div>
     <div class="h-action">${action}</div>
@@ -128,9 +135,7 @@ function habitRow(state, h) {
 
 // ---------- VIEW: Dnes ----------
 export function viewToday(state) {
-  const dailyHabits = state.habits.filter((h) => h.type !== 'weekly');
-  const weeklyHabits = state.habits.filter((h) => h.type === 'weekly');
-  const ordered = [...dailyHabits, ...weeklyHabits].sort((a, b) => (a.order || 0) - (b.order || 0));
+  const ordered = [...state.habits].sort((a, b) => (a.order || 0) - (b.order || 0));
   const quickEx = state.exercises.slice(0, 4);
   return `
     <div class="topbar">
@@ -140,7 +145,7 @@ export function viewToday(state) {
     ${heroCard(state)}
     ${questCard(state)}
     <div class="section-title">Dnešní návyky</div>
-    ${ordered.length ? ordered.map((h) => habitRow(state, h)).join('') :
+    ${ordered.length ? `<div class="drag-hint">Poddrž pro přesunutí</div>` + ordered.map((h) => habitRow(state, h, { draggable: true })).join('') :
       `<div class="empty"><div class="e-ico">🌱</div>Zatím žádné návyky.<br>Přidej si první na záložce Návyky.</div>`}
     <div class="section-title">Rychlý trénink</div>
     <div class="ex-grid">
@@ -160,11 +165,13 @@ export function viewHabits(state) {
       const meta = h.type === 'weekly'
         ? `${h.weeklyTarget}× týdně`
         : `${h.target} ${esc(h.unit || '')} denně`;
-      return `<div class="card habit" data-act="habit-edit" data-id="${h.id}">
+      const pri = h.priority || 2;
+      const ms = missStreakYesterday(state, h);
+      return `<div class="card habit" data-act="habit-edit" data-id="${h.id}" data-priority="${pri}">
         <div class="h-ico" style="${tinted(h.color)}">${icon(h.icon)}</div>
         <div class="h-body">
-          <div class="h-name">${esc(h.name)} ${info.multiplier > 1 ? `<span class="mult-badge">×${info.multiplier}</span>` : ''}</div>
-          <div class="h-sub"><span>${meta}</span>${info.displayStreak > 0 ? `<span class="mini-streak">${icon('flame')} ${info.displayStreak}${info.unit}</span>` : ''}</div>
+          <div class="h-name">${esc(h.name)} ${info.multiplier > 1 ? `<span class="mult-badge">×${info.multiplier}</span>` : ''} <span class="pri-badge pri-${pri}">${PRIORITY_LABELS[pri]}</span></div>
+          <div class="h-sub"><span>${meta}</span>${info.displayStreak > 0 ? `<span class="mini-streak">${icon('flame')} ${info.displayStreak}${info.unit}</span>` : ''}${ms >= 3 ? `<span class="miss-warn">${icon('warning')} ${ms}d vynecháno</span>` : ''}</div>
           ${ns ? `<div class="h-sub muted">Další bonus ×${ns.mult} ${ns.needText}</div>` : `<div class="h-sub muted">Maximální bonus ×3 🔥</div>`}
         </div>
         ${icon('chevron')}
@@ -273,11 +280,19 @@ export function viewProfile(state) {
 
 // ---------- SHEET: pridat/upravit navyk ----------
 export function sheetHabit(habit) {
-  const h = habit || { name: '', icon: 'target', color: COLORS[0], type: 'daily', target: 1, step: 1, unit: '×', weeklyTarget: 3 };
+  const h = habit || { name: '', icon: 'target', color: COLORS[0], type: 'daily', target: 1, step: 1, unit: '×', weeklyTarget: 3, priority: 2 };
+  const pri = h.priority || 2;
   return `<div class="sheet">
     <div class="grip"></div>
     <h2>${habit ? 'Upravit návyk' : 'Nový návyk'}</h2>
     <div class="field"><label>Název</label><input class="input" id="f-name" placeholder="Např. Pít vodu" value="${esc(h.name)}"></div>
+    <div class="field"><label>Důležitost <span class="muted" style="font-weight:400">(ovlivňuje XP a penalizaci)</span></label>
+      <div class="seg" id="f-priority">
+        <button data-v="1" class="${pri === 1 ? 'on' : ''}">Základní</button>
+        <button data-v="2" class="${pri === 2 ? 'on' : ''}">Důležitý</button>
+        <button data-v="3" class="${pri === 3 ? 'on' : ''}">Klíčový</button>
+      </div>
+    </div>
     <div class="field"><label>Typ</label>
       <div class="seg" id="f-type">
         <button data-v="daily" class="${h.type !== 'weekly' ? 'on' : ''}">Denně</button>

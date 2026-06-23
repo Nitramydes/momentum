@@ -1,7 +1,14 @@
 // Gamifikacni engine: streaky, multiplikatory, XP, levely, odznaky, questy.
 import { dayKey } from './store.js';
 
-export const HABIT_XP = 20;     // zaklad za splneni navyku (× multiplikator)
+// Priority systém
+export const PRIORITY_XP = [0, 15, 25, 40];            // P1/P2/P3 base XP
+export const PRIORITY_PENALTY = [0, 8, 15, 25];         // XP penalizace za den miss streaku
+export const PRIORITY_LABELS = ['', 'Základní', 'Důležitý', 'Klíčový'];
+export const PRIORITY_COLORS = ['', '#9ca3af', '#7c5cff', '#fbbf24'];
+export function habitBaseXp(habit) { return PRIORITY_XP[habit.priority || 2]; }
+
+export const HABIT_XP = 25;     // legacy fallback
 export const REP_XP = 1;        // XP za jedno opakovani cviku
 export const QUEST_XP = 50;     // bonus za denni quest
 export const BADGE_XP = 100;    // bonus za odznak
@@ -149,6 +156,19 @@ export function computeStats(state) {
 
 // reps daneho cviku dnes
 export function exTodayTotal(state, refId) { return amountOn(state, 'exercise', refId, dayKey()); }
+
+// Miss streak: pocet po sobe jdoucich dni BEZ splneni (zpetne od vcera, ne dnes)
+export function missStreakYesterday(state, habit) {
+  const createdDay = dayKey(habit.createdAt || Date.now());
+  let streak = 0;
+  let d = addDays(new Date(), -1);
+  while (keyOf(d) >= createdDay && !habitDoneOn(state, habit, keyOf(d))) {
+    streak++;
+    d = addDays(d, -1);
+    if (streak > 365) break;
+  }
+  return streak;
+}
 
 // ---------- odznaky ----------
 export const BADGES = [

@@ -35,6 +35,17 @@ const P = {
   rocket: '<path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09zM12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/>',
   medal: '<circle cx="12" cy="15" r="6"/><path d="M12 12v3l1.5 1.5M8.5 9L6 3M15.5 9L18 3"/>',
   crown: '<path d="M3 6l4 4 5-7 5 7 4-4v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/>',
+  // nové ikony
+  alarm: '<circle cx="12" cy="13" r="8"/><path d="M5 3 3 5M19 3l2 2M12 10v3l1.5 1.5M16 2.5l2-2M8 2.5l-2-2"/>',
+  snowflake: '<line x1="12" y1="2" x2="12" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="20" y1="5" x2="4" y2="19"/><line x1="4" y1="5" x2="20" y2="19"/>',
+  sunrise: '<path d="M12 2v8M4.93 10.93l1.41 1.41M2 18h2M20 18h2M19.07 10.93l-1.41 1.41M22 22H2M8 6l4-4 4 4"/><path d="M16 18a4 4 0 0 0-8 0"/>',
+  utensils: '<path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2M7 2v20"/><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3v7"/>',
+  smartphone: '<rect width="14" height="20" x="5" y="2" rx="2"/><path d="M12 18h.01"/>',
+  briefcase: '<rect width="20" height="14" x="2" y="7" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>',
+  trending: '<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>',
+  pill: '<path d="m10.5 20.5-7-7a5 5 0 0 1 7-7l7 7a5 5 0 0 1-7 7z"/><path d="m8.5 8.5 7 7"/>',
+  grip: '<path d="M9 6h6M9 12h6M9 18h6"/>',
+  warning: '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
 };
 
 const FILLED = new Set(['flame', 'zap', 'star', 'droplet', 'trophy', 'heart', 'moon', 'leaf', 'crown', 'sparkles', 'medal']);
@@ -46,6 +57,11 @@ export function icon(name, opts = {}) {
   return `<svg viewBox="0 0 24 24" fill="${fill}" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
 }
 
-export const HABIT_ICONS = ['droplet', 'book', 'sparkles', 'activity', 'dumbbell', 'heart', 'moon', 'sun', 'coffee', 'code', 'music', 'pen', 'leaf', 'brain', 'target', 'money'];
+export const HABIT_ICONS = [
+  'sunrise', 'alarm', 'droplet', 'snowflake', 'activity', 'dumbbell',
+  'book', 'sparkles', 'moon', 'sun', 'coffee', 'utensils', 'leaf',
+  'smartphone', 'briefcase', 'trending', 'pill', 'heart',
+  'brain', 'target', 'code', 'music', 'pen', 'money',
+];
 export const EX_ICONS = ['dumbbell', 'activity', 'footprints', 'zap', 'flame', 'target'];
 export const COLORS = ['#7c5cff', '#22d3ee', '#f472b6', '#fbbf24', '#34d399', '#fb7185', '#60a5fa', '#a78bfa'];

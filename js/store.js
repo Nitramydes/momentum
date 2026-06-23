@@ -14,9 +14,9 @@ function defaultState() {
   const now = Date.now();
   return {
     habits: [
-      { id: uid(), name: 'Pít vodu', icon: 'droplet', color: '#22d3ee', type: 'daily', target: 8, step: 1, unit: 'sklenic', order: 0, createdAt: now },
-      { id: uid(), name: 'Čtení', icon: 'book', color: '#a78bfa', type: 'daily', target: 30, step: 5, unit: 'min', order: 1, createdAt: now },
-      { id: uid(), name: 'Meditace', icon: 'sparkles', color: '#34d399', type: 'weekly', target: 1, step: 1, unit: '×', weeklyTarget: 5, order: 2, createdAt: now },
+      { id: uid(), name: 'Pít vodu', icon: 'droplet', color: '#22d3ee', type: 'daily', target: 8, step: 1, unit: 'sklenic', priority: 2, order: 0, createdAt: now },
+      { id: uid(), name: 'Čtení', icon: 'book', color: '#a78bfa', type: 'daily', target: 30, step: 5, unit: 'min', priority: 2, order: 1, createdAt: now },
+      { id: uid(), name: 'Meditace', icon: 'sparkles', color: '#34d399', type: 'weekly', target: 1, step: 1, unit: '×', weeklyTarget: 5, priority: 2, order: 2, createdAt: now },
     ],
     exercises: [
       { id: uid(), name: 'Kliky', icon: 'dumbbell', color: '#f472b6', step: 10, unit: 'opak.' },
@@ -25,7 +25,7 @@ function defaultState() {
       { id: uid(), name: 'Shyby', icon: 'zap', color: '#34d399', step: 5, unit: 'opak.' },
     ],
     logs: [], // { id, kind:'habit'|'exercise', refId, amount, ts, day }
-    game: { xp: 0, badges: [], questDay: null, questId: null, questDone: false },
+    game: { xp: 0, badges: [], questDay: null, questId: null, questDone: false, penaltyLog: {} },
     settings: { name: '', haptics: true },
     createdAt: now,
   };
@@ -35,6 +35,13 @@ let state;
 try {
   const raw = localStorage.getItem(KEY);
   state = raw ? JSON.parse(raw) : defaultState();
+  // migrace: přidej priority a krok ke starým návykům
+  for (const h of state.habits) {
+    if (h.priority === undefined) h.priority = 2;
+    if (h.step === undefined) h.step = 1;
+  }
+  // migrace: penaltyLog v game state
+  if (!state.game.penaltyLog) state.game.penaltyLog = {};
 } catch (e) {
   state = defaultState();
 }
@@ -113,6 +120,14 @@ export function awardBadge(id) {
   return false;
 }
 export function setSettings(patch) { Object.assign(state.settings, patch); emit(); }
+
+export function reorderHabits(orderedIds) {
+  orderedIds.forEach((id, idx) => {
+    const h = state.habits.find((x) => x.id === id);
+    if (h) h.order = idx;
+  });
+  emit();
+}
 
 export function exportData() { return JSON.stringify(state, null, 2); }
 export function importData(json) {
