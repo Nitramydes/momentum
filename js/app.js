@@ -1,6 +1,6 @@
 // Orchestrace: routing, udalosti, odmeny, level-upy, efekty, drag-to-reorder.
 import * as store from './store.js';
-import { getState, dayKey, shouldRemindExport, markExportReminder } from './store.js';
+import { getState, dayKey, shouldRemindShare, markShareReminder } from './store.js';
 import { icon, COLORS } from './icons.js';
 import {
   viewToday, viewHabits, viewTrain, viewStats, viewProfile,
@@ -215,11 +215,30 @@ function readExForm() {
 }
 
 // ---------- export / import ----------
-function doExport() {
-  const blob = new Blob([store.exportData()], { type: 'application/json' });
+async function doExport() {
+  const json     = store.exportData();
+  const filename = `momentum-zaloha-${dayKey()}.json`;
+  markShareReminder();
+
+  // iOS: Web Share API → nativní share sheet (Files, iCloud, AirDrop…)
+  if (navigator.canShare) {
+    try {
+      const file = new File([json], filename, { type: 'application/json' });
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: 'Momentum záloha', text: 'Data z Momentum' });
+        showToast('Záloha sdílena ✓', { icon: 'check' });
+        return;
+      }
+    } catch (e) {
+      if (e.name === 'AbortError') return; // uživatel zavřel share sheet
+    }
+  }
+
+  // Fallback: stáhnout soubor (desktop / Android)
+  const blob = new Blob([json], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `momentum-zaloha-${dayKey()}.json`;
+  a.download = filename;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   showToast('Záloha stažena', { icon: 'check' });
@@ -447,12 +466,21 @@ function init() {
     applyDailyPenalties();
   }
   paint();
-  // připomínka zálohy každých 7 dní
-  if (shouldRemindExport()) {
+  // denní připomínka zálohy — zobrazí se 1× denně jako kliknutelný toast
+  if (shouldRemindShare() && getState().habits.length > 0) {
     setTimeout(() => {
-      showToast('Nezapomeň si zazálohovat data (Profil → Export)', { icon: 'briefcase' });
-      markExportReminder();
-    }, 3000);
+      const t = document.createElement('div');
+      t.className = 'toast';
+      t.style.cursor = 'pointer';
+      t.innerHTML = `<span style="color:var(--cyan)">💾</span><span>Sdílet zálohu dat</span>`;
+      t.onclick = () => { t.remove(); doExport(); };
+      $toast.appendChild(t);
+      setTimeout(() => {
+        t.style.transition = 'opacity .4s, transform .4s';
+        t.style.opacity = '0'; t.style.transform = 'translateY(-12px)';
+        setTimeout(() => t.remove(), 400);
+      }, 6000);
+    }, 2500);
   }
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 }

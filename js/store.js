@@ -1,12 +1,13 @@
-// Persistence + stav aplikace. Data zustavaji jen v zarizeni.
-// Dvojita zaloha: KEY (primarni) + KEY_BAK (zaloha po 5s) chrani pred korupci.
+// Persistence — trojitá záloha: localStorage primary → localStorage bak → IndexedDB
 const KEY     = 'momentum.v1';
 const KEY_BAK = 'momentum.v1.bak';
+const IDB_DB  = 'momentum-idb';
+const IDB_ST  = 'state';
+const IDB_KEY = 'main';
 
 export function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
-
 export function dayKey(ts = Date.now()) {
   const d = new Date(ts);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -27,35 +28,80 @@ function defaultState() {
       { id: uid(), name: 'Shyby',   icon: 'zap',        color: '#34d399', step: 5,  unit: 'opak.' },
     ],
     logs: [],
-    game: { xp: 0, badges: [], questDay: null, questId: null, questDone: false, penaltyLog: {}, lastExportReminder: null },
+    game: { xp: 0, badges: [], questDay: null, questDone: false, penaltyLog: {}, lastShareReminder: null },
     settings: { name: '', haptics: true },
     createdAt: now,
   };
 }
 
 function migrate(s) {
-  for (const h of s.habits) {
+  if (!s) return null;
+  for (const h of (s.habits || [])) {
     if (h.priority === undefined) h.priority = 2;
     if (h.step    === undefined) h.step    = 1;
   }
-  if (!s.game.penaltyLog)        s.game.penaltyLog = {};
-  if (!s.game.lastExportReminder) s.game.lastExportReminder = null;
+  if (!s.game)                       s.game = {};
+  if (!s.game.penaltyLog)            s.game.penaltyLog = {};
+  if (!s.game.lastShareReminder)     s.game.lastShareReminder = null;
+  if (!s.exercises)                  s.exercises = [];
+  if (!s.logs)                       s.logs = [];
   return s;
 }
-
 function tryParse(raw) {
   try { return raw ? migrate(JSON.parse(raw)) : null; } catch { return null; }
 }
 
-// Pokus o nacteni: primarni → zaloha → vychozi stav
+// --- IndexedDB helpers ---
+function openIDB() {
+  return new Promise((res, rej) => {
+    const req = indexedDB.open(IDB_DB, 1);
+    req.onupgradeneeded = (e) => e.target.result.createObjectStore(IDB_ST, { keyPath: 'k' });
+    req.onsuccess = () => res(req.result);
+    req.onerror   = () => rej(req.error);
+  });
+}
+async function idbGet() {
+  try {
+    const db = await openIDB();
+    return new Promise((res) => {
+      const req = db.transaction(IDB_ST).objectStore(IDB_ST).get(IDB_KEY);
+      req.onsuccess = () => res(req.result?.v || null);
+      req.onerror   = () => res(null);
+    });
+  } catch { return null; }
+}
+async function idbSet(json) {
+  try {
+    const db = await openIDB();
+    const tx = db.transaction(IDB_ST, 'readwrite');
+    tx.objectStore(IDB_ST).put({ k: IDB_KEY, v: json, ts: Date.now() });
+  } catch {}
+}
+
+// --- Synchronní load: localStorage primary → bak ---
 let state = tryParse(localStorage.getItem(KEY))
          || tryParse(localStorage.getItem(KEY_BAK))
-         || defaultState();
+         || null;
+const hadLS = !!state;
+if (!state) state = defaultState();
 
-// --- ukladani ---
+// --- Async fallback: pokud LS chybí, zkus IDB ---
+if (!hadLS) {
+  idbGet().then((raw) => {
+    if (!raw) return;
+    const recovered = tryParse(raw);
+    if (recovered?.habits?.length > 0) {
+      state = recovered;
+      try { localStorage.setItem(KEY, raw); localStorage.setItem(KEY_BAK, raw); } catch {}
+      emit();
+    }
+  });
+}
+
+// --- Ukladani ---
 const subs = new Set();
 let saveTimer = null;
-let bakTimer  = null;
+let idbTimer  = null;
 
 function persist() {
   clearTimeout(saveTimer);
@@ -63,28 +109,26 @@ function persist() {
     try {
       const json = JSON.stringify(state);
       localStorage.setItem(KEY, json);
-      // zaloha s 5s zpozenim, aby primarni stihl probehnout
-      clearTimeout(bakTimer);
-      bakTimer = setTimeout(() => {
+      // záloha LS s 5s zpožením + IDB s 8s zpožením
+      clearTimeout(idbTimer);
+      idbTimer = setTimeout(() => {
         try { localStorage.setItem(KEY_BAK, json); } catch {}
-      }, 5000);
+        idbSet(json);
+      }, 8000);
     } catch {}
   }, 120);
 }
 
 export function subscribe(fn) { subs.add(fn); return () => subs.delete(fn); }
 function emit() { persist(); subs.forEach((fn) => fn(state)); }
-
 export function getState() { return state; }
 
-// Vrati true pokud je cas upomenout na export (7+ dni od posledniho nebo nikdy)
-export function shouldRemindExport() {
-  const last = state.game.lastExportReminder;
-  if (!last) return state.createdAt && (Date.now() - state.createdAt) > 7 * 86400_000;
-  return (Date.now() - new Date(last).getTime()) > 7 * 86400_000;
+// Má se dnes zobrazit připomínka zálohy? (1× denně)
+export function shouldRemindShare() {
+  return state.game.lastShareReminder !== dayKey();
 }
-export function markExportReminder() {
-  state.game.lastExportReminder = dayKey();
+export function markShareReminder() {
+  state.game.lastShareReminder = dayKey();
   persist();
 }
 
@@ -105,7 +149,7 @@ export function removeHabit(id) {
 }
 
 // ---- Exercises ----
-export function addExercise(e)   { state.exercises.push({ id: uid(), ...e }); emit(); }
+export function addExercise(e) { state.exercises.push({ id: uid(), ...e }); emit(); }
 export function updateExercise(id, patch) {
   const e = state.exercises.find((x) => x.id === id);
   if (e) Object.assign(e, patch);
@@ -125,7 +169,6 @@ export function addLog(kind, refId, amount, ts = Date.now()) {
   return entry;
 }
 export function removeLog(id) { state.logs = state.logs.filter((l) => l.id !== id); emit(); }
-
 export function reduceToday(kind, refId, amount) {
   const today = dayKey();
   for (let i = state.logs.length - 1; i >= 0 && amount > 0; i--) {
@@ -146,7 +189,6 @@ export function awardBadge(id)  {
   return false;
 }
 export function setSettings(patch) { Object.assign(state.settings, patch); emit(); }
-
 export function reorderHabits(orderedIds) {
   orderedIds.forEach((id, idx) => {
     const h = state.habits.find((x) => x.id === id);
